@@ -4,12 +4,9 @@ use std::error::Error;
 fn main() {
     let client = reqwest::blocking::Client::new();
 
-    let forums_links = match get_forums(client) {
-        Ok(links) => println!("{:?}", links),
-        Err(e) => {
-            println!("Can't get the list of links of the forums! {}", e);
-        }
-    };
+    let forums_links = get_forums(client).unwrap();
+
+    println!("{:?}", forums_links);
 }
 
 fn get_forums(client: reqwest::blocking::Client) -> Result<Vec<String>, Box<dyn Error>> {
