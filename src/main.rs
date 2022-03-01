@@ -28,8 +28,8 @@ fn get_forums(client: reqwest::blocking::Client) -> Result<Vec<String>, Box<dyn 
         .map(|element| element.value().attr("href").unwrap().to_string())
         .collect::<Vec<String>>();
 
-    if forums.len() > 0 {
-        return Ok(forum_links);
+    if !forums.is_empty() {
+        Ok(forum_links)
     } else {
         Err("Error! Can't read the forums!!!!".into())
     }
