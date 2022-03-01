@@ -17,9 +17,7 @@ fn get_forums(client: reqwest::blocking::Client) -> Result<Vec<String>, Box<dyn 
 
     let res = client.get(origin_url).send()?;
 
-    let response_text = res.text()?;
-
-    let parsed_html = Html::parse_document(&response_text);
+    let parsed_html = Html::parse_document(&res.text()?);
 
     let selector = &Selector::parse(".c-main > ul > li > a").unwrap();
 
