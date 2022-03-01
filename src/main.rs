@@ -25,11 +25,10 @@ fn get_forums(client: reqwest::blocking::Client) -> Result<Vec<String>, Box<dyn 
 
     let forums = parsed_html.select(selector).collect::<Vec<_>>();
 
-    let mut forum_links: Vec<String> = Vec::new();
-
-    for forum in &forums {
-        forum_links.push(forum.value().attr("href").unwrap().to_string());
-    }
+    let forum_links: Vec<String> = forums
+        .iter()
+        .map(|element| element.value().attr("href").unwrap().to_string())
+        .collect::<Vec<String>>();
 
     if forums.len() > 0 {
         return Ok(forum_links);
