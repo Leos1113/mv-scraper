@@ -1,6 +1,14 @@
-use reqwest::{blocking::Client, blocking::Response, StatusCode};
+use bson::Document;
+use chrono::{TimeZone, Utc};
+use dotenv::dotenv;
+use mongodb::bson::doc;
+use mongodb::{
+    options::{ClientOptions, ResolverConfig},
+    Client as MongoClient,
+};
+use reqwest::{Client, Response, StatusCode};
 use scraper::{Html, Selector};
-use std::error::Error;
+use std::{env, error::Error};
 
 #[derive(Debug)]
 struct Forum {
@@ -9,21 +17,61 @@ struct Forum {
     description: String,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv().ok();
+
+    let client_uri =
+        env::var("MONGODB_URI").expect("You must set the MONGODB_URI environment var!");
+
+    let options =
+        ClientOptions::parse_with_resolver_config(&client_uri, ResolverConfig::cloudflare())
+            .await?;
+    let mongo_client = MongoClient::with_options(options)?;
+
     let client: Client = Client::new();
 
-    let forums: Vec<Forum> = get_forums_info(client).unwrap();
+    let forums: Vec<Forum> = get_forums_info(client).await.unwrap();
+    let db = mongo_client.database("mediavida");
 
-    println!("{:?}", forums);
+    for forum in forums {
+        let new_forum = doc! {
+            "title": forum.title.clone(),
+            "link": forum.link,
+            "description": forum.description,
+            "scraped": Utc.ymd(2020, 2, 7).and_hms(0, 0, 0),
+        };
+
+        let collection = db.collection::<Document>("forums");
+
+        let forum_doc: Document = collection
+            .find_one(
+                doc! {
+                      "title": forum.title
+                },
+                None,
+            )
+            .await?
+            .expect("Missing 'Parasite' document.");
+
+        if !forum_doc.is_empty() {
+            continue;
+        }
+
+        let insert_result = collection.insert_one(new_forum.clone(), None).await?;
+        println!("New document ID: {}", insert_result.inserted_id);
+    }
+
+    Ok(())
 }
 
-fn get_forums_info(client: Client) -> Result<Vec<Forum>, Box<dyn Error>> {
+async fn get_forums_info(client: Client) -> Result<Vec<Forum>, Box<dyn Error>> {
     let url: &str = "https://www.mediavida.com/foro/";
 
-    let result: Response = client.get(url).send().unwrap();
+    let result: Response = client.get(url).send().await.unwrap();
 
     let raw_html = match result.status() {
-        StatusCode::OK => result.text().unwrap(),
+        StatusCode::OK => result.text().await.unwrap(),
         _ => panic!("Something went wrong"),
     };
 
