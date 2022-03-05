@@ -1,7 +1,10 @@
 use bson::Document;
 use chrono::{TimeZone, Utc};
 use dotenv::dotenv;
+use futures::stream::TryStreamExt;
+use futures::Stream;
 use mongodb::bson::doc;
+use mongodb::options::FindOptions;
 use mongodb::{
     options::{ClientOptions, ResolverConfig},
     Client as MongoClient,
@@ -10,12 +13,7 @@ use reqwest::{Client, Response, StatusCode};
 use scraper::{Html, Selector};
 use std::{env, error::Error};
 
-#[derive(Debug)]
-struct Forum {
-    title: String,
-    link: String,
-    description: String,
-}
+mod entities;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -31,7 +29,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let client: Client = Client::new();
 
-    let forums: Vec<Forum> = get_forums_info(client).await.unwrap();
+    let forums: Vec<entities::forum::Forum> = get_forums_info(client).await.unwrap();
     let db = mongo_client.database("mediavida");
 
     for forum in forums {
@@ -44,17 +42,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         let collection = db.collection::<Document>("forums");
 
-        let forum_doc: Document = collection
-            .find_one(
-                doc! {
-                      "title": forum.title
-                },
-                None,
-            )
-            .await?
-            .expect("Missing 'Parasite' document.");
+        let filter = doc! { "title": forum.title };
 
-        if !forum_doc.is_empty() {
+        let mut cursor = collection.find(filter, None).await?;
+
+        if let Some(_doc) = cursor.try_next().await? {
             continue;
         }
 
@@ -65,7 +57,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn get_forums_info(client: Client) -> Result<Vec<Forum>, Box<dyn Error>> {
+async fn get_forums_info(client: Client) -> Result<Vec<entities::forum::Forum>, Box<dyn Error>> {
     let url: &str = "https://www.mediavida.com/foro/";
 
     let result: Response = client.get(url).send().await.unwrap();
@@ -81,7 +73,7 @@ async fn get_forums_info(client: Client) -> Result<Vec<Forum>, Box<dyn Error>> {
     let title_selector = &Selector::parse(".info-col > strong").unwrap();
     let description_selector = &Selector::parse(".info-col > p").unwrap();
 
-    let mut forums: Vec<Forum> = Vec::new();
+    let mut forums: Vec<entities::forum::Forum> = Vec::new();
     for element in parsed_html.select(&link_selector) {
         let link = element.value().attr("href").unwrap().to_string();
         let mut title_element = element.select(&title_selector);
@@ -104,11 +96,7 @@ async fn get_forums_info(client: Client) -> Result<Vec<Forum>, Box<dyn Error>> {
             _ => {}
         }
 
-        forums.push(Forum {
-            link: link,
-            title: title,
-            description: description,
-        });
+        forums.push(entities::forum::Forum::new(title, link, description));
     }
 
     if !forums.is_empty() {
